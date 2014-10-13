@@ -1,7 +1,7 @@
 from __future__ import print_function, division
 
 from functools import partial
-from threading import RLock
+
 import os
 
 from PIL import Image
@@ -14,6 +14,10 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 
+i = 0  # NOTE do not judge me  (ugly but easy)
+latest_id = None
+
+
 def composition(f, *g):
     if g:
         def _composition(*x):
@@ -24,19 +28,24 @@ def composition(f, *g):
         return f
 
 
-i = 0  # NOTE do not judge me
-
-
 def teeprint(template="{}"):
     def _teeprint(message):
         print(template.format(message))
         return message
     return _teeprint
 
-def mark_rect(filename_template, original_filename, i):
-    filename = 'test.png'
-    print("Starting on part: {}".format(filename))
-    upperleft,lowerright = map(
+
+def mark_rect(
+    img,
+    filename_template,
+    original_filename,
+    i,
+    appendum,
+    id_=None
+):
+    print("Starting on part for: {}".format(original_filename))
+
+    upperleft, lowerright = map(
         partial(map, int),
         pl.ginput(2)
     )
@@ -56,32 +65,57 @@ def mark_rect(filename_template, original_filename, i):
     ]
 
     img_part = Image.fromarray(
-        np.uint8(255*img_part)
+        np.uint8(255*img_part_raw)
+    )
+
+    id_ = hash(img_part_raw) if id_ is None\
+        else id_
+
+    def find_proper_filename(filename):
+        return os.path.splitext(os.path.basename(filename))[0]
+
+    filename = filename_template.format(
+        find_proper_filename(original_filename),
+        id_,
+        appendum,
     )
     img_part.save(filename)
+
     print('Saved Image part: {} @{} from {}'.format(
         filename,
+        (upperleft, lowerright),
+        original_filename,
     ))
-    return (upperleft, lowerright), img_part
+
+    return (upperleft, lowerright), img_part, id_
+
 
 def render_image(img):
     print("rerendering..")
     plt.clf()
     plt.imshow(img)
     plt.draw()
+    pl.autoscale(False)
     print("OK")
 
 
-
 def main(
-    directory_pages='output'
+    pages_directory='pages',
+    output_directory='output',
+    start_page=0,
 ):
+# TODO save start_page in file
     global i
-    i = 0
+    i = start_page
+
+    try:
+        os.mkdir(output_directory)
+    except Exception as e:
+        pass
 
     page_names = map(
-        partial(os.path.join, directory_pages),
-        sorted(os.listdir(directory_pages))
+        partial(os.path.join, pages_directory),
+        sorted(os.listdir(pages_directory))
     )
     imgs = map(
         composition(mpimg.imread, teeprint('Loading Image: {}')),
@@ -89,38 +123,56 @@ def main(
     )
     N = len(imgs)
 
-    img = imgs[0]
     fig = plt.figure(1)
-    plt.show()
+    pl.ion()
+    pl.show()
 
-    lock = RLock()
+    filename_template = os.path.join(output_directory, '{}_{}.{}.png')
+
     def onkey(event):
-        try:
-            with lock:
-                if event.key == 'x':
-                    mark_rect('nothing', 'else', 13)
-                else:
-                    global i
-                    if event.key == 'pageup':
-                        i += 1
-                    if event.key == 'pagedown':
-                        i -= 1
-                    i %= N
-                    if i == -1: i = N - 1
-                    print(i)
-                    if event.key == 'pageup' or event.key == 'pagedown':
-                        render_image(imgs[i])
-        except Exception as e:
-            print('Error', e.message)
+        if event.key in 'ea':
+            global latest_id
+            if event.key == 'e':
+                (upperleft, lowerright), img_part, id_ = mark_rect(
+                    imgs[i],
+                    filename_template,
+                    page_names[i],
+                    appendum='exercise',
+                    i=i,
+                    id_=None,
+                )
+                latest_id = id_
+
+            elif event.key == 'a':
+                (upperleft, lowerright), img_part, id_ = mark_rect(
+                    imgs[i],
+                    filename_template,
+                    page_names[i],
+                    appendum='answer',
+                    i=i,
+                    id_=latest_id
+                )
+
+        elif event.key in ['pageup', 'pagedown']:
+            global i
+            i += {
+                'pageup': 1,
+                'pagedown': -1,
+            }[event.key]
+
+            i %= N
+            if i == -1:
+                i = N - 1
+
+            print(i)
+            render_image(imgs[i])
 
     fig.canvas.mpl_connect(
         'key_press_event',
         onkey
     )
 
-    render_image(img[i])
-
-    pl.close()
+    render_image(imgs[i])
 
 
 if __name__ == '__main__':
