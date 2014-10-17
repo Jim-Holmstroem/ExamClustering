@@ -38,13 +38,16 @@ def teeprint(template="{}"):
 def mark_rect(
     img,
     filename_template,
-    original_filename,
     i,
     appendum,
     id_=None
 ):
-    print("Starting on part for: {}".format(original_filename))
-
+    print("mark_rect(img, {},{},{},{})".format(
+        filename_template,
+        i,
+        appendum,
+        id_,
+    ))
     upperleft, lowerright = map(
         partial(map, int),
         pl.ginput(2)
@@ -74,20 +77,26 @@ def mark_rect(
     def find_proper_filename(filename):
         return os.path.splitext(os.path.basename(filename))[0]
 
+    count = 0
     filename = filename_template.format(
-        find_proper_filename(original_filename),
         id_,
-        appendum,
+        "{}.{}".format(appendum, count),
     )
+    while(os.path.isfile(filename)):
+        count += 1
+        filename = filename_template.format(
+            id_,
+            "{}.{}".format(appendum, count)
+        )
+
     img_part.save(filename)
 
-    print('Saved Image part: {} @{} from {}'.format(
+    print('Saved Image part: {} @{}'.format(
         filename,
         (upperleft, lowerright),
-        original_filename,
     ))
 
-    return (upperleft, lowerright), img_part, id_
+    return (upperleft, lowerright), img_part, id_, count
 
 
 def render_image(img):
@@ -99,19 +108,55 @@ def render_image(img):
     print("OK")
 
 
+def log_rectangles(
+    output_directory, origin, upperleft, lowerright, id_, count, type_
+):
+    import time
+
+    with open(
+        os.path.join(
+            output_directory,
+            'rects.yaml'
+        ),
+        "a"
+    ) as f:
+        message = (
+            "- origin: {origin}\n"
+            "  upperleft: {upperleft}\n"
+            "  lowerright: {lowerright}\n"
+            "  id: {id_}\n"
+            "  type: {type_}\n"
+            "  count: {count}\n"
+            "  timestamp: {timestamp}\n"
+        ).format(
+            origin=origin,
+            upperleft=upperleft,
+            lowerright=lowerright,
+            id_=id_,
+            type_=type_,
+            count=count,
+            timestamp=int(time.time()),
+        )
+
+        f.write(message)
+        print(message)
+
+
 def main(
     pages_directory='pages',
     output_directory='output',
-    start_page=0,
+    start_page=None,
 ):
-# TODO save start_page in file
+    # TODO save start_page in file
     global i
-    i = start_page
+
+    i = start_page if start_page is not None\
+        else 0
 
     try:
         os.mkdir(output_directory)
     except Exception as e:
-        pass
+        print(e.message)
 
     page_names = map(
         partial(os.path.join, pages_directory),
@@ -119,7 +164,7 @@ def main(
     )
     imgs = map(
         composition(mpimg.imread, teeprint('Loading Image: {}')),
-        page_names[:3]
+        page_names[:2]
     )
     N = len(imgs)
 
@@ -127,45 +172,60 @@ def main(
     pl.ion()
     pl.show()
 
-    filename_template = os.path.join(output_directory, '{}_{}.{}.png')
+    filename_template = os.path.join(output_directory, '{}.{}.png')
 
     def onkey(event):
-        if event.key in 'ea':
-            global latest_id
-            if event.key == 'e':
-                (upperleft, lowerright), img_part, id_ = mark_rect(
-                    imgs[i],
-                    filename_template,
-                    page_names[i],
-                    appendum='exercise',
-                    i=i,
-                    id_=None,
+        if event.key:
+            if event.key in 'ea':
+                global latest_id
+                if event.key == 'e':
+                    (upperleft, lowerright), img_part, id_, count = mark_rect(
+                        imgs[i],
+                        filename_template,
+                        appendum='exercise',
+                        i=i,
+                        id_=None,
+                    )
+                    latest_id = id_
+
+                elif event.key == 'a':
+                    (upperleft, lowerright), img_part, id_, count = mark_rect(
+                        imgs[i],
+                        filename_template,
+                        appendum='answer',
+                        i=i,
+                        id_=latest_id
+                    )
+
+                log_rectangles(
+                    output_directory=output_directory,
+                    origin=page_names[i],
+                    upperleft=upperleft,
+                    lowerright=lowerright,
+                    id_=latest_id,
+                    count=count,
+                    type_={
+                        'e': 'exercise',
+                        'a': 'answer'
+                    }.get(
+                        event.key,
+                        'unknown'
+                    ),
                 )
-                latest_id = id_
 
-            elif event.key == 'a':
-                (upperleft, lowerright), img_part, id_ = mark_rect(
-                    imgs[i],
-                    filename_template,
-                    page_names[i],
-                    appendum='answer',
-                    i=i,
-                    id_=latest_id
-                )
+            elif event.key in ['pageup', 'pagedown']:
+                global i
+                i += {
+                    'pageup': 1,
+                    'pagedown': -1,
+                }[event.key]
 
-        elif event.key in ['pageup', 'pagedown']:
-            global i
-            i += {
-                'pageup': 1,
-                'pagedown': -1,
-            }[event.key]
+                i %= N
+                if i == -1:
+                    i = N - 1
 
-            i %= N
-            if i == -1:
-                i = N - 1
-
-            print(i)
-            render_image(imgs[i])
+                print(i)
+                render_image(imgs[i])
 
     fig.canvas.mpl_connect(
         'key_press_event',
