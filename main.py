@@ -14,10 +14,6 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 
-i = 0  # NOTE do not judge me  (ugly but easy)
-latest_id = None
-
-
 def composition(f, *g):
     if g:
         def _composition(*x):
@@ -148,10 +144,11 @@ def main(
     start_page=None,
 ):
     # TODO save start_page in file
-    global i
 
-    i = start_page if start_page is not None\
-        else 0
+    state = {  # HACK nonlocal workaround for python2
+        'i': start_page if start_page is not None else 0,
+        'latest_id': None
+    }
 
     try:
         os.mkdir(output_directory)
@@ -177,32 +174,31 @@ def main(
     def onkey(event):
         if event.key:
             if event.key in 'ea':
-                global latest_id
                 if event.key == 'e':
                     (upperleft, lowerright), img_part, id_, count = mark_rect(
-                        imgs[i],
+                        imgs[state["i"]],
                         filename_template,
                         appendum='exercise',
-                        i=i,
+                        i=state["i"],
                         id_=None,
                     )
-                    latest_id = id_
+                    state["latest_id"] = id_
 
                 elif event.key == 'a':
                     (upperleft, lowerright), img_part, id_, count = mark_rect(
-                        imgs[i],
+                        imgs[state["i"]],
                         filename_template,
                         appendum='answer',
-                        i=i,
-                        id_=latest_id
+                        i=state["i"],
+                        id_=state["latest_id"]
                     )
 
                 log_rectangles(
                     output_directory=output_directory,
-                    origin=page_names[i],
+                    origin=page_names[state["i"]],
                     upperleft=upperleft,
                     lowerright=lowerright,
-                    id_=latest_id,
+                    id_=state["latest_id"],
                     count=count,
                     type_={
                         'e': 'exercise',
@@ -214,25 +210,24 @@ def main(
                 )
 
             elif event.key in ['pageup', 'pagedown']:
-                global i
-                i += {
+                state["i"] += {
                     'pageup': 1,
                     'pagedown': -1,
                 }[event.key]
 
-                i %= N
-                if i == -1:
-                    i = N - 1
+                state["i"] %= N
+                if state["i"] == -1:
+                    state["i"] = N - 1
 
-                print(i)
-                render_image(imgs[i])
+                print(state["i"])
+                render_image(imgs[state["i"]])
 
     fig.canvas.mpl_connect(
         'key_press_event',
         onkey
     )
 
-    render_image(imgs[i])
+    render_image(imgs[state["i"]])
 
 
 if __name__ == '__main__':
